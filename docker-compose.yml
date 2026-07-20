@@ -1,0 +1,69 @@
+# Fishery 数据库 Docker Compose 配置文件
+# TDengine（时序数据） + MySQL（业务数据）
+services:
+  # MySQL 业务数据库
+  mysql:
+    image: mysql:8.0
+    container_name: fishery-mysql
+    hostname: fishery-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: fishery
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - fishery-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # TDengine 时序数据库服务
+  tdengine:
+    image: tdengine/tdengine:3.3.0.0
+    container_name: tdengine
+    hostname: tdengine
+    restart: unless-stopped
+    # 端口映射：6030-原生连接，6041-HTTP API，6043-6049-集群通信
+    ports:
+      - "6030:6030"
+      - "6041:6041"
+      - "6043-6049:6043-6049"
+      - "6043-6049:6043-6049/udp"
+    # 环境变量配置
+    environment:
+      - TAOS_FQDN=tdengine
+      - TAOS_FIRST_EP=tdengine:6030
+      - TAOS_SERVER_PORT=6030
+    # 数据持久化：数据和日志映射到 Docker 卷
+    volumes:
+      - tdengine_data:/var/lib/taos
+      - tdengine_log:/var/log/taos
+      - ./sql/fishery_td.sql:/root/fishery_td.sql
+    networks:
+      - fishery-network
+    # 健康检查：确保数据库服务正常运行
+    healthcheck:
+      test: ["CMD", "taos", "-s", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+# Docker 数据卷定义：用于数据持久化
+volumes:
+  mysql_data:
+    driver: local
+  tdengine_data:
+    driver: local
+  tdengine_log:
+    driver: local
+
+networks:
+  fishery-network:
+    driver: bridge
