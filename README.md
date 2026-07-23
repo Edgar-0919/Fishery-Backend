@@ -6,10 +6,9 @@
 
 ```mermaid
 flowchart TB
-    classDef frontend fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
-    classDef api fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
-    classDef service fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
-    classDef database fill:#FCE4EC,stroke:#C2185B,stroke-width:2px
+    classDef layer fill:#37474F,stroke:#263238,stroke-width:2px
+    classDef node fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#FFFFFF
+    classDef highlight fill:#42A5F5,stroke:#1E88E5,stroke-width:2px,color:#FFFFFF
 
     Frontend["前端层"] -->|"HTTP REST API"| API
 
@@ -49,45 +48,64 @@ flowchart TB
     J --> K
     J --> L
 
-    class Frontend frontend
-    class C,D,E,F api
-    class G,H,I,J service
-    class K,L database
+    class Frontend,B,A,D,E,F,G,H,I,J,K,L,M,N,O,P node
 ```
 
 ## 核心流程
 
 ```mermaid
-flowchart TB
-    A["传感器数据"] --> B["范围校验"]
-    B --> C["波动率检测"]
-    C --> D["缺失值填充"]
-    D --> E["TDengine 入库"]
+flowchart TD
+    classDef node fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#FFFFFF
+    classDef decision fill:#FF7043,stroke:#E65100,stroke-width:2px,color:#FFFFFF
+    classDef emergency fill:#EF5350,stroke:#C62828,stroke-width:2px,color:#FFFFFF
+    classDef success fill:#66BB6A,stroke:#388E3C,stroke-width:2px,color:#FFFFFF
+
+    Start["传感器数据"] --> Clean1["范围校验"]
+    Clean1 --> Clean2["波动率检测"]
+    Clean2 --> Clean3["缺失值填充"]
+    Clean3 --> Store["TDengine 入库"]
     
-    E --> F["阈值越界检测<br/>(detector)"]
+    Store --> Detect{"阈值越界检测"}
     
-    F -->|"warning"| G["仅记录告警"]
-    F -->|"critical"| H["紧急规则<br/>(rules)"]
+    Detect -->|"warning"| Log["仅记录告警"]
     
-    H -->|"触发"| I["直接执行"]
-    H -->|"未触发"| J["Agent 决策<br/>(LLM)"]
+    Detect -->|"critical"| Emergency{"紧急规则"}
     
-    J --> K["安全规则校验<br/>(rules)"]
-    K --> L["设备指令执行<br/>(executor)"]
-    L --> M["效果跟踪"]
-    M -->|"未达标"| N["升级人工"]
+    Emergency -->|"触发"| DirectExec["直接执行"]
     
-    style A fill:#E3F2FD,stroke:#1976D2
-    style E fill:#E8F5E9,stroke:#388E3C
-    style F fill:#FFF3E0,stroke:#F57C00
-    style G fill:#F3E5F5,stroke:#7B1FA2
-    style H fill:#FFEBEE,stroke:#C62828
-    style I fill:#FFEBEE,stroke:#C62828
-    style J fill:#FFF3E0,stroke:#F57C00
-    style K fill:#FFEBEE,stroke:#C62828
-    style L fill:#E8F5E9,stroke:#388E3C
-    style M fill:#FFF3E0,stroke:#F57C00
-    style N fill:#FFEBEE,stroke:#C62828
+    Emergency -->|"未触发"| LLM["Agent 决策 (LLM)"]
+    
+    LLM --> Safety{"安全规则校验"}
+    
+    Safety --> Exec["设备指令执行"]
+    
+    Exec --> Effect{"效果跟踪"}
+    
+    Effect -->|"达标"| Success["指标改善"]
+    
+    Effect -->|"未达标"| Escalate["升级人工"]
+    
+    subgraph Clean["数据清洗"]
+        style Clean fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px
+        Clean1
+        Clean2
+        Clean3
+    end
+    
+    subgraph Auto["自动处理"]
+        style Auto fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px
+        Detect
+        Emergency
+        LLM
+        Safety
+        Exec
+        Effect
+    end
+
+    class Start,Clean1,Clean2,Clean3,Store,Log,DirectExec,LLM,Exec node
+    class Detect,Emergency,Safety,Effect decision
+    class Escalate emergency
+    class Success success
 ```
 
 ## 核心功能
