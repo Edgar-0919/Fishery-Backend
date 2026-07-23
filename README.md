@@ -5,23 +5,23 @@
 ## 系统架构
 
 ```mermaid
-flowchart TB
-    classDef layer fill:#37474F,stroke:#263238,stroke-width:2px
+flowchart LR
     classDef node fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#FFFFFF
-    classDef highlight fill:#42A5F5,stroke:#1E88E5,stroke-width:2px,color:#FFFFFF
+    classDef subgraphStyle fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px
 
-    Frontend["前端层"] -->|"HTTP REST API"| API
+    Frontend["前端层"]
 
     subgraph Backend["后端层 (FastAPI)"]
+        style Backend subgraphStyle
         subgraph API["接口层"]
-            direction LR
+            direction TB
             C["OneNET回调"]
             D["传感器数据"]
             E["Agent问答"]
             F["设备控制"]
         end
         subgraph Service["业务服务层"]
-            direction LR
+            direction TB
             G["DataProcessor"]
             H["AgentPipeline"]
             I["AlertTracker"]
@@ -30,10 +30,12 @@ flowchart TB
     end
 
     subgraph Database["数据库层"]
-        direction LR
+        style Database subgraphStyle
         K["TDengine<br/>(时序数据)"]
         L["MySQL<br/>(业务数据)"]
     end
+
+    Frontend -->|"HTTP REST API"| API
 
     C --> G
     D --> G
@@ -48,13 +50,13 @@ flowchart TB
     J --> K
     J --> L
 
-    class Frontend,B,A,D,E,F,G,H,I,J,K,L,M,N,O,P node
+    class Frontend,C,D,E,F,G,H,I,J,K,L node
 ```
 
 ## 核心流程
 
 ```mermaid
-flowchart TD
+flowchart LR
     classDef node fill:#607D8B,stroke:#455A64,stroke-width:2px,color:#FFFFFF
     classDef decision fill:#FF7043,stroke:#E65100,stroke-width:2px,color:#FFFFFF
     classDef emergency fill:#EF5350,stroke:#C62828,stroke-width:2px,color:#FFFFFF
@@ -87,6 +89,7 @@ flowchart TD
     
     subgraph Clean["数据清洗"]
         style Clean fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px
+        direction LR
         Clean1
         Clean2
         Clean3
@@ -94,6 +97,7 @@ flowchart TD
     
     subgraph Auto["自动处理"]
         style Auto fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px
+        direction LR
         Detect
         Emergency
         LLM
