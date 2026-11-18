@@ -1,6 +1,24 @@
 fastapi
 uvicorn
 pymysql
-requests
+dbutils>=3.0.0
+pyjwt>=2.8.0
 apscheduler
 pydantic
+pydantic-settings
+python-dotenv
+openai>=1.0.0
+tenacity
+aiohttp
+python-dateutil
+
+# RAG 知识库
+chromadb>=0.5.0
+sentence-transformers>=2.7.0
+# 仅用于按 Markdown 标题切块，不参与 LLM 调用
+langchain-text-splitters>=0.3.0
+rank-bm25>=0.2.2
+jieba>=0.42.1
+
+# MCP Server：把只读查询工具暴露给外部客户端（python -m mcp_server）
+mcp>=2.0,<3

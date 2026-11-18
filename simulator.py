@@ -49,14 +49,51 @@ class WaterQualitySimulator:
     """水质数据模拟器"""
 
     def __init__(self, pond_id: str, device_id: str, base_url: str,
-                 interval: float = 5.0, anomaly_rate: float = 0.05):
+                 interval: float = 5.0, anomaly_rate: float = 0.05,
+                 username: str = "admin", password: str = "admin123"):
         self.pond_id = pond_id
         self.device_id = device_id
         self.base_url = base_url
         self.interval = interval
         self.anomaly_rate = anomaly_rate
+        self.username = username
+        self.password = password
+        self.token = ""
         self.tick = 0  # 模拟周期计数，用于正弦波相位推进
         self.session: aiohttp.ClientSession | None = None
+
+    async def _login(self) -> bool:
+        """登录后端获取访问令牌
+
+        数据上报接口受鉴权保护，模拟器需要先登录才能写入数据。
+
+        Returns:
+            bool: 是否登录成功
+        """
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+
+        url = f"{self.base_url}/api/auth/login"
+        payload = {"username": self.username, "password": self.password}
+
+        try:
+            async with self.session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    print(f"[SIMULATOR] 登录失败 HTTP {resp.status}: {text[:200]}")
+                    return False
+                result = await resp.json()
+                self.token = result.get("token", "")
+                if self.token:
+                    print(f"[SIMULATOR] 登录成功: {self.username}")
+                    return True
+                print("[SIMULATOR] 登录响应缺少 token")
+                return False
+        except Exception as e:
+            print(f"[SIMULATOR] 登录异常: {e}")
+            return False
 
     def _time_of_day_factor(self) -> float:
         """根据当前时间计算时段影响因子（0~1 之间波动）"""
@@ -123,7 +160,8 @@ class WaterQualitySimulator:
             if anomaly and sensor_type == anomaly[0]:
                 # 注入异常值
                 value = anomaly[1]
-                print(f"[SIMULATOR] ⚠ 异常注入: {anomaly[2]} | {sensor_type}={value}")
+                # Windows 中文控制台默认 GBK，避免使用 ⚠ 等不可编码字符导致进程退出
+                print(f"[SIMULATOR] [异常注入] {anomaly[2]} | {sensor_type}={value}")
             else:
                 value = self._generate_value(sensor_type)
             data[sensor_type] = value
@@ -136,19 +174,29 @@ class WaterQualitySimulator:
         if self.session is None:
             self.session = aiohttp.ClientSession()
 
+        if not self.token and not await self._login():
+            return
+
         data = self.generate_data()
         url = f"{self.base_url}{SIMULATOR_ENDPOINT}"
+        headers = {"Authorization": f"Bearer {self.token}"}
 
         try:
-            async with self.session.post(url, json=data, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                result = await resp.json()
+            async with self.session.post(
+                url, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                 ts = datetime.now().strftime("%H:%M:%S")
                 if resp.status == 200:
                     print(f"[SIMULATOR] {ts} | 上报成功 | pond={self.pond_id} dev={self.device_id} "
                           f"DO={data.get('dissolved_oxygen')} T={data.get('temperature')} "
                           f"pH={data.get('ph_value')} NH3={data.get('ammonia_nitrogen')}")
+                elif resp.status == 401:
+                    # 令牌过期，清空后下一轮自动重新登录
+                    self.token = ""
+                    print(f"[SIMULATOR] {ts} | 令牌失效，将重新登录")
                 else:
-                    print(f"[SIMULATOR] {ts} | 上报失败 HTTP {resp.status}: {result}")
+                    text = await resp.text()
+                    print(f"[SIMULATOR] {ts} | 上报失败 HTTP {resp.status}: {text[:200]}")
         except aiohttp.ClientError as e:
             print(f"[SIMULATOR] {datetime.now().strftime('%H:%M:%S')} | 连接失败: {e}")
         except Exception as e:
@@ -159,6 +207,9 @@ class WaterQualitySimulator:
         print(f"[SIMULATOR] 启动: pond_id={self.pond_id} device_id={self.device_id} "
               f"interval={self.interval}s anomaly_rate={self.anomaly_rate:.0%}")
         print(f"[SIMULATOR] 后端地址: {self.base_url}{SIMULATOR_ENDPOINT}")
+
+        # 上报接口需要鉴权，启动时先获取令牌
+        await self._login()
 
         try:
             while True:
@@ -178,6 +229,8 @@ async def main():
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=f"后端地址（默认 {DEFAULT_BASE_URL}）")
     parser.add_argument("--interval", type=float, default=5.0, help="上报间隔秒数（默认 5）")
     parser.add_argument("--anomaly-rate", type=float, default=0.05, help="异常注入概率（默认 0.05）")
+    parser.add_argument("--username", default="admin", help="登录用户名（默认 admin）")
+    parser.add_argument("--password", default="admin123", help="登录密码（默认 admin123）")
     args = parser.parse_args()
 
     simulator = WaterQualitySimulator(
@@ -186,6 +239,8 @@ async def main():
         base_url=args.base_url,
         interval=args.interval,
         anomaly_rate=args.anomaly_rate,
+        username=args.username,
+        password=args.password,
     )
     await simulator.run()
 
