@@ -34,10 +34,12 @@ from app.core.config import settings
 def _detect_trend(history: deque) -> str:
     """检测传感器数值的变化趋势
 
-    使用最近 3 个采样点判断趋势：
-    - 连续上升：values[0] < values[1] < values[2] → "rising"
-    - 连续下降：values[0] > values[1] > values[2] → "falling"
-    - 其他情况 → "stable"
+    判定条件（需同时满足，避免 5 秒上报下的自然波动误报）：
+    1. 最近 TREND_WINDOW_POINTS 个采样点首尾变化幅度 >= TREND_MIN_CHANGE_RATIO
+    2. 整体方向单调，允许 1 次反向波动
+
+    原实现只看 3 个点是否严格单调，15 秒即可凑出「三连升」，
+    导致任何正常波动都会产生趋势预警；改为幅度门槛 + 多点窗口后显著降噪。
 
     Args:
         history: 包含 (时间戳ms, 值) 元组的双端队列
@@ -46,15 +48,34 @@ def _detect_trend(history: deque) -> str:
         str: "rising"（上升）、"falling"（下降）或 "stable"（稳定）
 
     Note:
-        历史数据不足 3 条时直接返回 "stable"，避免误判
+        历史数据不足窗口长度时直接返回 "stable"，避免误判
     """
-    if len(history) < 3:
+    window = max(3, int(settings.TREND_WINDOW_POINTS))
+    if len(history) < window:
         return "stable"
-    recent = list(history)[-3:]
-    values = [v for _, v in recent]
-    if values[0] < values[1] < values[2]:
+
+    values = [v for _, v in list(history)[-window:]]
+    if not all(isinstance(v, (int, float)) for v in values):
+        return "stable"
+
+    abs_change = abs(values[-1] - values[0])
+    base = abs(values[0])
+
+    if base < 1e-6:
+        # 基线接近 0（如氨氮）时无法用比例衡量，改用绝对变化量
+        if abs_change < 0.01:
+            return "stable"
+    elif abs_change / base < settings.TREND_MIN_CHANGE_RATIO:
+        return "stable"
+
+    ups = sum(1 for prev, cur in zip(values, values[1:]) if cur > prev)
+    downs = sum(1 for prev, cur in zip(values, values[1:]) if cur < prev)
+    total = len(values) - 1
+    tolerance = 1  # 允许一次反向波动
+
+    if values[-1] > values[0] and ups >= total - tolerance:
         return "rising"
-    elif values[0] > values[1] > values[2]:
+    if values[-1] < values[0] and downs >= total - tolerance:
         return "falling"
     return "stable"
 

@@ -61,49 +61,50 @@ def check_emergency_rules(pond_id: str, device_id: str, sensor_data: Dict[str, f
     ph = sensor_data.get("ph_value", 7.0)
     ammonia = sensor_data.get("ammonia_nitrogen", 0)
     water_level = sensor_data.get("water_level", 10)
+    limits = settings.EMERGENCY_THRESHOLDS
 
-    if do < 1.0:
+    if do < limits["dissolved_oxygen_min"]:
         return RuleResult(
             matched=True,
             action="start_aerator",
             params={"power": "high", "duration": 60},
-            reason=f"溶解氧极度危险({do:.2f}mg/L < 1.0mg/L)，立即启动增氧机最高功率",
+            reason=f"溶解氧极度危险({do:.2f}mg/L < {limits['dissolved_oxygen_min']}mg/L)，立即启动增氧机最高功率",
             bypass_llm=True
         )
 
-    if temp > 35.0:
+    if temp > limits["temperature_max"]:
         return RuleResult(
             matched=True,
             action="start_aerator",
             params={"power": "high", "duration": 30},
-            reason=f"水温过高({temp:.1f}℃ > 35℃)，立即启动增氧机降温",
+            reason=f"水温过高({temp:.1f}℃ > {limits['temperature_max']}℃)，立即启动增氧机降温",
             bypass_llm=True
         )
 
-    if ph < 6.0 or ph > 9.5:
+    if ph < limits["ph_value_min"] or ph > limits["ph_value_max"]:
         return RuleResult(
             matched=True,
             action="alert_human",
             params={"priority": "critical"},
-            reason=f"pH 值严重异常({ph:.2f})，需人工紧急处理",
+            reason=f"pH 值严重异常({ph:.2f}，安全范围 {limits['ph_value_min']}~{limits['ph_value_max']})，需人工紧急处理",
             bypass_llm=True
         )
 
-    if ammonia > 1.0:
+    if ammonia > limits["ammonia_nitrogen_max"]:
         return RuleResult(
             matched=True,
             action="start_pump",
             params={"duration": 30},
-            reason=f"氨氮严重超标({ammonia:.2f}mg/L > 1.0mg/L)，立即启动水泵换水",
+            reason=f"氨氮严重超标({ammonia:.2f}mg/L > {limits['ammonia_nitrogen_max']}mg/L)，立即启动水泵换水",
             bypass_llm=True
         )
 
-    if water_level < 0.5:
+    if water_level < limits["water_level_min"]:
         return RuleResult(
             matched=True,
             action="alert_human",
             params={"priority": "critical"},
-            reason=f"水位过低({water_level:.2f}m < 0.5m)，需人工紧急处理",
+            reason=f"水位过低({water_level:.2f}m < {limits['water_level_min']}m)，需人工紧急处理",
             bypass_llm=True
         )
 
@@ -134,19 +135,20 @@ def check_safety_rules(pond_id: str, device_id: str, action: str, sensor_data: D
     do = sensor_data.get("dissolved_oxygen", 100)
     ph = sensor_data.get("ph_value", 7.0)
     temp = sensor_data.get("temperature", 0)
+    limits = settings.SAFETY_THRESHOLDS
 
     if action == "stop_aerator":
-        if do < 3.0:
+        if do < limits["dissolved_oxygen_min"]:
             return SafetyCheckResult(
                 allowed=False,
                 blocked_by="DO Safety Rule",
-                reason=f"溶解氧({do:.2f}mg/L)低于安全阈值(3mg/L)，禁止关闭增氧机"
+                reason=f"溶解氧({do:.2f}mg/L)低于安全阈值({limits['dissolved_oxygen_min']}mg/L)，禁止关闭增氧机"
             )
-        if temp > 30.0:
+        if temp > limits["temperature_max"]:
             return SafetyCheckResult(
                 allowed=False,
                 blocked_by="Temperature Safety Rule",
-                reason=f"水温过高({temp:.1f}℃)，禁止关闭增氧机"
+                reason=f"水温过高({temp:.1f}℃ > {limits['temperature_max']}℃)，禁止关闭增氧机"
             )
         if action in settings.HIGH_RISK_ACTIONS:
             return SafetyCheckResult(
@@ -156,13 +158,13 @@ def check_safety_rules(pond_id: str, device_id: str, action: str, sensor_data: D
             )
 
     if action == "stop_pump":
-        if do < 3.0:
+        if do < limits["dissolved_oxygen_min"]:
             return SafetyCheckResult(
                 allowed=False,
                 blocked_by="DO Safety Rule",
-                reason=f"溶解氧({do:.2f}mg/L)低于安全阈值(3mg/L)，禁止关闭水泵"
+                reason=f"溶解氧({do:.2f}mg/L)低于安全阈值({limits['dissolved_oxygen_min']}mg/L)，禁止关闭水泵"
             )
-        if ph < 6.5 or ph > 8.5:
+        if ph < limits["ph_value_min"] or ph > limits["ph_value_max"]:
             return SafetyCheckResult(
                 allowed=False,
                 blocked_by="pH Safety Rule",
@@ -208,17 +210,20 @@ def check_effect_tracking_rule(pond_id: str, device_id: str, action: str,
     temp_before = sensor_data_before.get("temperature", 0)
     temp_after = sensor_data_after.get("temperature", 0)
 
+    target = settings.EFFECT_THRESHOLDS
+
     if action == "start_aerator":
-        if do_before < 5.0:
-            if do_after < do_before + 1.0 and do_after < 5.0:
+        if do_before < target["dissolved_oxygen_target"]:
+            if (do_after < do_before + target["dissolved_oxygen_rise"]
+                    and do_after < target["dissolved_oxygen_target"]):
                 return False
-        if temp_before > 28.0:
+        if temp_before > target["temperature_high"]:
             if temp_after >= temp_before:
                 return False
 
     if action == "start_pump":
-        if ammonia_before > 0.2:
-            if ammonia_after >= ammonia_before - 0.1:
+        if ammonia_before > settings.ALERT_THRESHOLDS["ammonia_nitrogen"]["warning_max"]:
+            if ammonia_after >= ammonia_before - target["ammonia_nitrogen_drop"]:
                 return False
 
     return True
